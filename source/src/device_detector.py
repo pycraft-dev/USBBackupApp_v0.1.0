@@ -63,7 +63,8 @@ class DeviceDetector:
             )
 
             label = label_buffer.value if success else "UNKNOWN"
-            device_id = f"{drive_letter}_{serial_num.value if success else '0'}"
+            # Use volume serial HEX only: drive letters can change between inserts.
+            device_id = format(int(serial_num.value if success else 0), "08X")
             kind = "USB" if drive_type == DRIVE_REMOVABLE else "DISK"
             drives.append(DeviceInfo(drive=drive_letter, volume_label=label, device_id=device_id, drive_kind=kind))
         return drives
@@ -94,12 +95,19 @@ if (-not $disk) {{ throw "No disk drive found for drive letter $dl" }}
 $disk.PNPDeviceID
 """.strip()
 
+        creationflags = 0
+        try:
+            creationflags = subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
+        except Exception:
+            creationflags = 0
+
         completed = subprocess.run(
             ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
             capture_output=True,
             text=True,
             encoding="utf-8",
             errors="replace",
+            creationflags=creationflags,
         )
         if completed.returncode != 0:
             raise RuntimeError((completed.stderr or completed.stdout or "").strip() or f"PowerShell error: {completed.returncode}")

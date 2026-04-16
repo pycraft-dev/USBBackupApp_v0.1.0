@@ -23,6 +23,22 @@ from ui.progress_presenter import ProgressPresenter
 APP_STATE_PATH = resolve_app_state_path()
 
 
+def _normalize_autostart_device_id(raw: str) -> str:
+    try:
+        v = (raw or "").strip()
+        if not v:
+            return ""
+        if "_" in v:
+            tail = v.rsplit("_", 1)[-1].strip()
+            if tail.isdigit():
+                return tail
+        if v.isdigit():
+            return v
+        return v
+    except Exception:
+        return (raw or "").strip()
+
+
 class BackupApp:
     """Main customtkinter window and user workflow coordinator."""
 
@@ -92,6 +108,7 @@ class BackupApp:
         self.backup_target_dir.trace_add("write", lambda *_: self._save_app_state())
         self._load_app_state()
         self.refresh_devices()
+        self._refresh_autolaunch_status_from_system()
 
         # If started with autostart args, keep retrying for a short period.
         # On some systems Task Scheduler triggers before the drive is fully mounted.
@@ -100,6 +117,22 @@ class BackupApp:
             self.autolaunch_status_var.set("Автозапуск: включен")
             self._autostart_retry_left = 15
             self.root.after(900, self._maybe_autostart_scan)
+
+    def _refresh_autolaunch_status_from_system(self) -> None:
+        """Синхронизирует статус автозапуска с реальной задачей Планировщика."""
+        try:
+            target = (AutoLaunchService.get_enabled_target_serial_hex() or "").strip().upper()
+            if not target:
+                self.autolaunch_status_var.set("Автозапуск: выключен")
+                return
+            for d in getattr(self, "devices", []) or []:
+                if (d.device_id or "").strip().upper() == target:
+                    self.autolaunch_status_var.set(f"Автозапуск: включен ({d.drive} {d.volume_label})")
+                    return
+            self.autolaunch_status_var.set(f"Автозапуск: включен (ID {target})")
+        except Exception:
+            # If anything goes wrong, keep UI usable and avoid noisy popups.
+            return
 
     def _build_ui(self) -> None:
         available_fonts = set(tkfont.families())
@@ -633,8 +666,11 @@ class BackupApp:
         self.devices = DeviceDetector.list_source_devices()
         labels = [f"{d.drive} ({d.volume_label})" for d in self.devices]
         self.device_combo.configure(values=labels)
-        if labels and not self.selected_device.get():
-            self.selected_device.set(labels[0])
+        # Do not auto-select the first device: users may have multiple USB drives connected.
+        # Keep the existing selection if it is still valid; otherwise clear and require explicit choice.
+        current = (self.selected_device.get() or "").strip()
+        if current and current not in labels:
+            self.selected_device.set("")
         self.status.set(f"Найдено источников: {len(self.devices)}")
         self._log(f"Найдено устройств: {len(labels)}", important=False)
         self._on_inputs_changed()
@@ -648,8 +684,9 @@ class BackupApp:
             self._log("Автозапуск: пропущен, не выбрана папка бэкапа")
             return
 
+        wanted = _normalize_autostart_device_id(self.autostart_device_id)
         for d in self.devices:
-            if d.device_id == self.autostart_device_id:
+            if d.device_id == wanted:
                 label = f"{d.drive} ({d.volume_label})"
                 self._log(f"Автозапуск: обнаружена флешка {label}. Запускаю сканирование.")
                 self.autolaunch_status_var.set(f"Автозапуск: включен ({d.drive} {d.volume_label})")
@@ -774,7 +811,6 @@ class BackupApp:
             self.analysis = None
             self._update_action_buttons("none")
             return
-
         source = Path(device.drive)
         target = Path(target_text)
         target.mkdir(parents=True, exist_ok=True)

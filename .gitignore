@@ -5,7 +5,22 @@
 # Python / build artifacts
 __pycache__/
 *.py[cod]
+*.log
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtualenvs
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
 
 # PyInstaller output
 /source/build/
 /source/dist/
+
+# Local app state
+/source/config/app_state.json
