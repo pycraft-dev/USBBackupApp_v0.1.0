@@ -24,3 +24,13 @@ env/
 
 # Local app state
 /source/config/app_state.json
+
+# Sale / release artifacts (do not commit)
+*.zip
+/sale_staging/
+/installer_output/
+/release_*/
+USBBackupApp_Sale_*.zip
+
+# Bytecode (must not be committed)
+**/__pycache__/
